@@ -1,0 +1,71 @@
+[
+  {
+    "model": "0xSero/GLM-5.2-504B"
+  },
+  {
+    "model": "bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4A16"
+  },
+  {
+    "model": "coder3101/Qwen3-VL-32B-Thinking-heretic-v2"
+  },
+  {
+    "model": "google/gemma-4-26B-A4B-it"
+  },
+  {
+    "model": "ibm-granite/granite-4.2-30b"
+  },
+  {
+    "model": "ibm-granite/granite-4.2-30b-nvfp4"
+  },
+  {
+    "model": "Inferact/Qwen3.8-27B-NVFP4"
+  },
+  {
+    "model": "madeby561/GLM-5.2-NVFP4-REAP-504B"
+  },
+  {
+    "model": "madeby561/GLM-5.2-NVFP4-REAP-504B-term"
+  },
+  {
+    "model": "MiniMaxAI/MiniMax-M2.7"
+  },
+  {
+    "model": "nvidia/DeepSeek-V4-Flash-0731-NVFP4"
+  },
+  {
+    "model": "nvidia/DeepSeek-V4-Flash-nvfp4-DSpark"
+  },
+  {
+    "model": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
+  },
+  {
+    "model": "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4"
+  },
+  {
+    "model": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4"
+  },
+  {
+    "model": "orcarouter/GLM-5.3-Flash-Uncensored-NVFP4"
+  },
+  {
+    "model": "Qwen/Qwen3.6-27B"
+  },
+  {
+    "model": "Qwen/Qwen3.6-35B-A3B"
+  },
+  {
+    "model": "Qwen/Qwen3.8-27B"
+  },
+  {
+    "model": "RadixArk/Qwen3.8-Flash-Next-NVFP4"
+  },
+  {
+    "model": "RedHatAI/GLM-5.3-Flash-NVFP4"
+  },
+  {
+    "model": "unsloth/Qwen3.8-27B-NVFP4"
+  },
+  {
+    "model": "vcruz305/GLM-5.3-Flash-NVFP4"
+  }
+]

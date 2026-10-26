@@ -1,0 +1,136 @@
+===============================================================================
+SOFTWARE DESIGN DOCUMENT: CONTAINER SETUP & VERIFICATION SYSTEM
+===============================================================================
+Target Output File: bin/container_setup/container_setup_SDD.txt
+Script Name: bin/container_setup/container_setup.mjs
+Target Language/Runtime: Node.js (ES Modules)
+Date: 2026-09-11
+
+-------------------------------------------------------------------------------
+1. OBJECTIVE & OVERVIEW
+-------------------------------------------------------------------------------
+The objective of the Container Setup & Verification System (`container_setup.mjs`) 
+is to automate the creation, launch, readiness validation, and teardown of 
+Large Language Model (LLM) Docker containers prior to or independently of 
+full performance profiling.
+
+The system accepts a model matrix configuration (via `--models-conf <path>`), 
+inspects the local Docker environment to stop any running containers 
+starting with the prefix "vllm-", and sequentially brings up containers defined 
+in the configuration using a generic `conf/base_compose.yaml` combined with 
+per-model Docker Compose override files located in `conf/model_compose_overrides/<NAME>.yaml`.
+
+Environment variables in `base_compose.yaml` have been minimized, retaining `NAME` 
+as the sole variable used to specify the container name and identify the corresponding 
+model override file. Multiple Docker Compose files are strung together during invocation 
+using multiple `-f` flags (`docker compose -f conf/base_compose.yaml -f conf/model_compose_overrides/<NAME>.yaml`).
+
+Each container's inference endpoint (`http://localhost:8000/v1/models`) 
+is polled for up to 30 minutes (1,800,000 ms). If the model successfully becomes 
+available, the container is gracefully stopped. If bringing up or starting the 
+model fails (or times out), the script captures docker logs and interleaves 
+the failure output into both the console output and a timestamped log file 
+`<time>_container_setup.log`.
+
+-------------------------------------------------------------------------------
+2. PREREQUISITES & ENVIRONMENT ASSUMPTIONS
+-------------------------------------------------------------------------------
+- OS: Linux environment with Docker CLI and Docker Compose v2 installed.
+- Node.js: v18+ runtime with ES module support.
+- Config files: `conf/base_compose.yaml`, `conf/model_compose_overrides/<NAME>.yaml`, 
+  and model config files (e.g. `conf/test.json`).
+- Common Utilities: Shared utility functions located in `bin/common/util.mjs`.
+
+-------------------------------------------------------------------------------
+3. FILE ARCHITECTURE & DELIVERABLES
+-------------------------------------------------------------------------------
+1. `bin/container_setup/container_setup_SDD.txt`: Software design specification.
+2. `bin/container_setup/container_setup.mjs`: Main execution script.
+3. `bin/common/util.mjs`: Refactored shared utilities used by both `aiperf` 
+   and `container_setup` modules (Docker management, polling, logging, IO).
+4. `conf/base_compose.yaml`: Generic base Docker Compose specification (variable-free except `NAME`).
+5. `conf/model_compose_overrides/`: Directory containing per-model Docker Compose override YAML files.
+
+-------------------------------------------------------------------------------
+4. COMMAND LINE INTERFACE (CLI) SPECIFICATION
+-------------------------------------------------------------------------------
+Usage:
+  node bin/container_setup/container_setup.mjs [--models-conf <path> | --model <name>] [options]
+
+Flags:
+  --models-conf <path>  Path to the model configuration JSON file.
+  --model, -m <name>    One-shot run: create and test only the specified model.
+  --help, -h            Displays help information and usage options.
+
+Examples:
+  node bin/container_setup/container_setup.mjs --models-conf conf/test.json
+  node bin/container_setup/container_setup.mjs --model google/gemma-4-E4B-it
+  node bin/container_setup/container_setup.mjs --models-conf conf/core_models.json --model google/gemma-4-E4B-it
+
+-------------------------------------------------------------------------------
+5. DETAILED SYSTEM WORKFLOW & EXECUTION PHASES
+-------------------------------------------------------------------------------
+
+Phase 1: CLI Argument Parsing & Input Validation
+  - Parse CLI arguments for `--models-conf` and `--model`.
+  - Validate that at least one of `--models-conf` or `--model` is provided.
+  - If `--model` is specified, run a one-shot execution for only that model (matching existing config or creating a new single-item entry).
+  - Verify `conf/base_compose.yaml` exists and `conf/model_compose_overrides/` directory is accessible.
+
+Phase 2: Dual-Sink Logger Setup
+  - Generate timestamp string `YYYYMMDD_HHMMSS`.
+  - Create log filename: `<YYYYMMDD_HHMMSS>_container_setup.log`.
+  - Initialize a logger that outputs formatted messages to standard console 
+    and appends them to the log file in real-time.
+
+Phase 3: Pre-Run Docker Environment Cleanup
+  - Query local Docker daemon for all active container names 
+    (`docker ps --format '{{.Names}}'`).
+  - Identify all containers whose names begin with "vllm-".
+  - Execute `docker stop` (via `stopContainersByPrefix`) for each identified container without removing them (`docker rm`).
+  - Log each container stop action to screen and log file.
+
+Phase 4: Sequential Model Container Lifecycle Testing Loop
+  For each configuration entry in the JSON file:
+    a. Extract `model` and derive container name `NAME` using 
+       `sanitizeContainerName(model)` (or explicitly configured `container_name`).
+    b. Locate or generate per-model Compose override file:
+       `conf/model_compose_overrides/<NAME>.yaml`
+    c. Launch container via Docker Compose using strung `-f` flags:
+       `NAME="<NAME>" docker compose -f conf/base_compose.yaml -f conf/model_compose_overrides/<NAME>.yaml -p <NAME> up -d`
+    d. Initiate readiness polling:
+       - Target endpoint: `http://localhost:8000/v1/models`.
+       - Poll interval: 2000 ms.
+       - Timeout duration: 30 minutes (1,800,000 ms).
+    e. On Success (HTTP 200 OK within 30 min):
+       - Record bringup latency.
+       - Log success status to console and log file.
+       - Gracefully stop container: `docker stop <NAME>` (containers are NOT removed with `docker rm`).
+    f. On Failure or Timeout:
+       - Log error status to console and log file.
+       - Fetch Docker container logs (`docker logs --tail 200 <NAME>`).
+       - Interleave failure details and container stdout/stderr output into the log.
+       - Gracefully stop container (`docker stop <NAME>`) before proceeding to next row.
+
+Phase 5: Summary & Exit
+  - Output summary report detailing total models tested, passed count, and failed count.
+  - Close log file handle.
+  - Exit process with code 0 (if all passed) or code 1 (if any failed).
+
+-------------------------------------------------------------------------------
+6. SHARED COMMON UTILITIES SPECIFICATION (`bin/common/util.mjs`)
+-------------------------------------------------------------------------------
+To prevent code duplication with `bin/aiperf`, the following utility functions 
+reside in `bin/common/util.mjs` and are shared between `bin/aiperf` and `bin/container_setup`:
+- `sanitizeContainerName(modelName)`: Converts model string to `vllm-*` container name.
+- `sanitizeModelName(modelName)`: Formats model name for directory/log naming.
+- `getFormattedTimestamp(date)`: Returns `YYYYMMDD_HHMMSS` timestamp.
+- `readJsonFile(filePath, defaultValue)` / `writeJsonFile(filePath, data)`: File IO helpers.
+- `runCommand(command, args, options)` / `runCommandWithOutput(...)`: Execution helpers.
+- `pollEndpointReady(url, intervalMs, timeoutMs, logger)`: Endpoint readiness polling.
+- `pollContainerStopped(containerName, intervalMs, timeoutMs, logger)`: Container state checker.
+- `getContainersByPrefix(prefix)`: Lists matching Docker containers.
+- `stopContainersByPrefix(prefix, logger)`: Stops matching running containers without removing them (`docker stop`).
+- `getContainerLogs(containerName, tailLines)`: Extracts container stdout/stderr.
+
+===============================================================================

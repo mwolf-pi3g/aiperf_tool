@@ -1,0 +1,56 @@
+# Generic base Docker Compose configuration for vLLM benchmark services.
+# Used in conjunction with per-model override files in conf/model_compose_overrides/<NAME>.yaml
+#
+# Execution:
+#   NAME=<container_name> docker compose -f conf/base_compose.yaml -f conf/model_compose_overrides/<NAME>.yaml -p <container_name> up -d
+
+services:
+  vllm:
+    container_name: ${NAME:-vllm}
+    # Pinned: :latest floats, and a tag that moves mid-campaign makes early and
+    # late benchmark results incomparable. v0.29.0 = what :latest was on 2026-09-09.
+    image: vllm/vllm-openai:v0.29.0
+    ipc: host
+    shm_size: 32gb
+    ports:
+      - "8000:8000"
+
+    volumes:
+      # Weights + trust_remote_code modules + xet chunks. Mount the HF_HOME
+      # parent, not just hub/, or custom modeling code re-extracts every run.
+      # - ./hf_cache:/hf-cache
+      - ./hf_cache:/hf-cache
+      # torch.compile + CUDA graph artifacts. Separate so a vLLM version bump
+      # can nuke this without touching 2 TB of weights.
+      - ./vllm_cache:/vllm-cache
+
+    environment:
+      # Non-default paths: huggingface_hub and vLLM will not find them otherwise.
+      HF_HOME: /hf-cache
+      VLLM_CACHE_ROOT: /vllm-cache
+      HF_HUB_OFFLINE: "1"
+      SAFETENSORS_FAST_GPU: "1"
+      VLLM_LOGGING_LEVEL: INFO
+      HF_TOKEN: ""
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+
+    # Base generic command flags. Model specific flags arrive via model override file.
+    command: >
+      --host 0.0.0.0 --port 8000 --max-model-len 32768 --gpu-memory-utilization 0.80 --max-num-seqs 256 --enable-prompt-tokens-details --trust-remote-code
+
+    healthcheck:
+      test: [ "CMD", "curl", "-sf", "http://localhost:8000/v1/models" ]
+      interval: 15s
+      timeout: 5s
+      start_period: 1200s
+      retries: 5
+
+    stop_grace_period: 60s
+    restart: "no"

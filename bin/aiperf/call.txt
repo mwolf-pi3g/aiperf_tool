@@ -1,0 +1,8 @@
+aiperf profile --model 'Inferact/Qwen3.8-27B-NVFP4' --tokenizer 'Qwen/Qwen3.8-27B' --endpoint-type 'chat' --endpoint '/v1/chat/completions' --streaming --no-server-metrics --url 'http://gx10-3513.local:8000' 
+--request-count 1000 --gpu-telemetry 'pynvml' --concurrency x,y,z
+
+--artifact-dir
+--auto-plot
+--output-tokens-mean 128 
+
+--output-tokens-stddev 0 

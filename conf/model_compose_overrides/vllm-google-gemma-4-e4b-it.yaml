@@ -1,0 +1,4 @@
+services:
+  vllm:
+    command: >
+      --model google/gemma-4-E4B-it --served-model-name google/gemma-4-E4B-it --host 0.0.0.0 --port 8000 --max-model-len 32768 --gpu-memory-utilization 0.40 --max-num-seqs 256 --enable-prompt-tokens-details --trust-remote-code --async-scheduling --enable-auto-tool-choice --reasoning-parser gemma4 --tool-call-parser gemma4 --kv-cache-dtype fp8

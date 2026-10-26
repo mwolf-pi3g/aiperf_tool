@@ -1,0 +1,147 @@
+===============================================================================
+SOFTWARE DESIGN DOCUMENT & AI PROMPT: AIPERF ORCHESTRATOR SYSTEM
+===============================================================================
+Target Output File: aiperf_SDD.txt
+Project Name: aiperf_orchestrator
+Target Language/Runtime: Node.js (ES Modules - aiperf_orchestrator.mjs)
+Date: 2026-09-08
+
+-------------------------------------------------------------------------------
+1. OBJECTIVE & OVERVIEW
+-------------------------------------------------------------------------------
+The goal of this system is to automate benchmark profiling and telemetry 
+collection across multiple Large Language Model (LLM) serving containers using 
+`aiperf`.
+
+The orchestrator script (`aiperf_orchestrator.mjs`) reads a model matrix configuration 
+(`models.json`), iteratively starts Docker containers, waits for server readiness via 
+readiness polling (`/v1/models`), records bring-up metrics into `model_bringup.json`, 
+executes `aiperf` profiling sessions with base configuration (`aiperf_base.yaml`), 
+saves output artifacts into model and time-stamped directories, and gracefully 
+shuts down containers prior to starting the next model test run.
+
+-------------------------------------------------------------------------------
+2. PREREQUISITES & ENVIRONMENT ASSUMPTIONS
+-------------------------------------------------------------------------------
+- OS: Linux environment with Docker CLI and Node.js v18+ installed.
+- CLI Tools: `aiperf` binary must be installed and accessible in system $PATH.
+- Execution directory: Workspace root containing `aiperf_orchestrator.mjs`, 
+  `aiperf_base.yaml`, and `models.json`.
+
+-------------------------------------------------------------------------------
+3. FILE ARCHITECTURE & DELIVERABLES
+-------------------------------------------------------------------------------
+1. `aiperf_SDD.txt`: Software design specification document (this document).
+2. `aiperf_base.yaml`: Base YAML configuration for `aiperf` CLI options.
+3. `models.json`: Matrix defining container names, model identifiers, tokenizer paths, 
+   and concurrency options.
+4. `aiperf_orchestrator.mjs`: Node.js ES module containing the main execution loop.
+5. `model_bringup.json`: Dynamically updated output file capturing container 
+   bring-up time and status metrics.
+
+-------------------------------------------------------------------------------
+4. CONFIGURATION SPECIFICATIONS
+-------------------------------------------------------------------------------
+
+4.1 `models.json` Schema
+`models.json` contains an array of model benchmark configs (with container name, model name, optional tokenizer, and optional concurrency):
+```json
+[
+  {
+    "container_name": "vllm-qwen-27b",
+    "model": "Inferact/Qwen3.8-27B-NVFP4",
+    "tokenizer": "Qwen/Qwen3.8-27B",
+    "concurrency": "1,2,4,8,16"
+  },
+  {
+    "container_name": "vllm-llama-8b",
+    "model": "meta-llama/Llama-3.1-8B-Instruct",
+    "concurrency": "1,4,16"
+  }
+]
+```
+Note on Tokenizer: If `tokenizer` is specified in the model config/dataset entry, pass `--tokenizer "<tokenizer>"`. Otherwise, pass `--use-server-token-count`.
+Note on Concurrency: Concurrency can be specified per item or escaped/overridden 
+in the title/configuration key.
+
+4.2 `aiperf_base.yaml` Schema
+Base configuration file supplied to `aiperf`:
+```yaml
+endpoint-type: "chat"
+endpoint: "/v1/chat/completions"
+streaming: true
+no-server-metrics: true
+url: "http://localhost:8000"
+request-count: 1000
+gpu-telemetry: "pynvml"
+auto-plot: true
+output-tokens-mean: 128
+output-tokens-stddev: 0
+```
+
+-------------------------------------------------------------------------------
+5. MAIN ORCHESTRATOR WORKFLOW & MAIN LOOP (`aiperf_orchestrator.mjs`)
+-------------------------------------------------------------------------------
+
+The main loop in `aiperf_orchestrator.mjs` executes the following sequence:
+
+Step 1: Read Inputs
+  - Parse `models.json` to extract model configurations: [container_name, model, optional tokenizer, concurrency].
+  - Validate existence of `aiperf_base.yaml`.
+  - Read existing entries from `model_bringup.json` if it exists, or initialize an empty array if it does not. (Never clear, delete, or truncate existing bringup log data).
+
+Step 2: Process Each Model Config
+  For each entry in `models.json`:
+
+  A. Container Startup:
+     - Issue child process command: `docker start <container_name>` (or `docker run` if applicable).
+     - Save timestamp `startTime`.
+
+  B. Readiness Polling:
+     - Poll target endpoint `GET http://localhost:8000/v1/models` every 1000ms.
+     - Repeat until HTTP response status code is 200 OK or polling timeout is reached (e.g., 300s).
+     - Record `readyTime` upon successful response. Calculate bringup latency (`readyTime - startTime`).
+
+  C. Log Bringup Metrics:
+     - Read/parse current `model_bringup.json` content (or maintain in-memory array initialized from disk).
+     - Append new record with start time, end time, and total time metrics:
+       {
+         "container_name": "<container_name>",
+         "model": "<model>",
+         "start_time": "<ISO_STRING>",
+         "end_time": "<ISO_STRING>",
+         "total_time_ms": <number>,
+         "status": "ready"
+       }
+     - Save updated array back to `model_bringup.json` without deleting or overwriting historical runs.
+
+  D. Invoke `aiperf`:
+     - Construct timestamp string `YYYYMMDD_HHMMSS`.
+     - Parse concurrency string (e.g. "1,2,4,8,16" or extracted from title escape).
+     - Construct artifact directory path:
+       `./artifacts/${timestamp}_${sanitized_model}_c${concurrency}`
+     - Determine Tokenizer / Server Token Count flag:
+       * If `entry.tokenizer` is defined and non-empty: add `--tokenizer "<tokenizer>"`.
+       * Otherwise (if `tokenizer` is omitted or empty): add `--use-server-token-count`.
+     - Assemble `aiperf` command using flags:
+       `aiperf profile --config aiperf_base.yaml --model "<model>" [ --tokenizer "<tokenizer>" | --use-server-token-count ] --concurrency "<concurrency>" --artifact-dir "<artifact_dir>"`
+     - Execute `aiperf` process and wait for completion (stdout/stderr piped to console).
+
+  E. Container Shutdown & Teardown Polling:
+     - Stop container: `docker stop <container_name>`.
+     - Poll container status via Docker CLI (`docker inspect` or `docker ps --filter "name=<container_name>"`) every 1000ms until container state is stopped/exited.
+
+  F. Next Iteration:
+     - Proceed to next configuration in `models.json`.
+
+-------------------------------------------------------------------------------
+6. IMPLEMENTATION REQUIREMENTS & CODING PROMPT FOR FUTURE RUNS
+-------------------------------------------------------------------------------
+When implementing `aiperf_orchestrator.mjs`, ensure:
+1. Native ES Modules (`import fs from 'node:fs'`, `import { execSync, spawn } from 'node:child_process'`).
+2. Robust async HTTP polling using standard fetch API or `http`/`https` native modules.
+3. Clean signal handling (SIGINT/SIGTERM listeners to stop active Docker containers if process is killed).
+4. Sanitization of model names for directory path creation (replacing slashes `/` and invalid path characters with underscores `_`).
+5. Tokenizer flag selection logic: check if `tokenizer` field exists in model entry; if present, use `--tokenizer <tokenizer>`, otherwise default to `--use-server-token-count`.
+6. Persistence of `model_bringup.json`: ALWAYS append new entries to `model_bringup.json`. Load existing records if the file already exists; NEVER delete, clear, or truncate historical bringup records.
+===============================================================================

@@ -1,0 +1,7 @@
+[
+  {
+    "model": "Inferact/Qwen3.8-27B-NVFP4",
+    "aiperf_concurrency": "16",
+    "aiperf_args": "--extra-inputs '{\"reasoning_effort\": \"low\"}' --isl 550 --osl 128 --output-tokens-stddev 0"
+  }
+]

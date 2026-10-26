@@ -1,0 +1,11 @@
+[
+  {
+    "model": "google/gemma-4-E4B-it",
+    "aiperf_args": "",
+    "aiperf_concurrency": [
+      1,
+      4,
+      16
+    ]
+  }
+]

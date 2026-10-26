@@ -1,0 +1,74 @@
+===============================================================================
+SOFTWARE DESIGN DOCUMENT & AI PROMPT: MODEL SIZE CHECKER (DOCKER INIT)
+===============================================================================
+Target Output File: docker_init/model_size_checker_SDD.txt
+Project Name: model_size_checker
+Target Language/Runtime: Node.js (ES Modules)
+Date: 2026-09-09
+
+-------------------------------------------------------------------------------
+1. OBJECTIVE & OVERVIEW
+-------------------------------------------------------------------------------
+The `hfdl` application is a pre-flight verification and download tool for LLM 
+models. Its primary objective is to read model configurations from `--models-conf`, 
+query the Hugging Face API to determine the exact weight/repository size of each model, 
+and optionally download model weights using the `hf` CLI tool.
+
+-------------------------------------------------------------------------------
+2. PREREQUISITES & ENVIRONMENT ASSUMPTIONS
+-------------------------------------------------------------------------------
+- OS: Linux / macOS / Windows with Node.js v18+ installed.
+- Network: Outbound HTTPS connectivity to `huggingface.co` API endpoints.
+- Optional Environment Variables:
+  - `HF_TOKEN` or `HUGGING_FACE_HUB_TOKEN`: Optional Hugging Face User Access 
+    Token for querying gated or private model repositories (e.g. meta-llama/Llama-3).
+
+-------------------------------------------------------------------------------
+3. FILE ARCHITECTURE & DELIVERABLES
+-------------------------------------------------------------------------------
+1. `bin/hfdl/model_size_checker_SDD.txt`: Software design specification document (this document).
+2. `bin/hfdl/hfdl.mjs`: CLI application entry point.
+3. `bin/hfdl/hf_api.mjs`: Module for interacting with Hugging Face Model API and tree endpoints.
+
+-------------------------------------------------------------------------------
+4. COMMAND LINE INTERFACE & CONFIGURATION SPECIFICATIONS
+-------------------------------------------------------------------------------
+
+4.1 CLI Argument Options
+- `--models-conf <path>` (Required): Path to input models JSON file.
+- `--cache-dir <path>` (Optional): Cache directory path (default: `./conf/hf_cache`).
+- `--dl` (Optional): Enables model downloads via `hf download`.
+- `--keep-incomplete` / `--no-keep-incomplete` (Optional): Retain/remove partial downloads.
+- `--help` / `-h` (Optional): Displays usage and parameter requirements.
+
+4.2 Hugging Face API Endpoints
+- **Model Info API**: `GET https://huggingface.co/api/models/{model_id}`
+  - Used to fetch model metadata, commit hash, and repository file list (`siblings`).
+- **Tree API (Fallback Inspection)**: `GET https://huggingface.co/api/models/{model_id}/tree/main`
+  - Used to recursively inspect file sizes (`size` property in bytes) for LFS weight files.
+
+-------------------------------------------------------------------------------
+5. CORE WORKFLOW & LOGIC SPECIFICATION
+-------------------------------------------------------------------------------
+
+Step 1: Argument Parsing & Validation
+  - Parse CLI arguments (`--models-conf <path>`).
+
+Step 2: Read & Validate Model Configuration Matrix
+  - Read and parse configuration file specified by `--models-conf`.
+
+Step 3: Query Hugging Face & Calculate Model Weight Sizes
+  For each model in the matrix:
+  1. Dispatch HTTP GET request to `https://huggingface.co/api/models/${model_id}`.
+  2. Pass `Authorization: Bearer ${process.env.HF_TOKEN}` if present.
+  3. Scan file siblings for model weight files (`.safetensors`, `.bin`, `.pt`, `.gguf`, etc.).
+  4. Aggregate byte sizes and compute size in GB.
+
+Step 4: Optional Downloading
+  - If `--dl` flag is present, download model using CLI tool: `hf download <model_id>`.
+
+Step 5: Output Summary Report & Exit Code
+  - Render terminal report table containing Model Identifier, HF Size, and Download status.
+  - Calculate and display total weight size of models.
+  - Exit code: 0 if all models process successfully, 1 if any model fails.
+===============================================================================
